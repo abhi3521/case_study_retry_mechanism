@@ -1,4 +1,4 @@
-package com.case_study.dto;
+package com.case_study.retry_case.dto;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -16,5 +16,4 @@ public class MessagePayload {
     private String messageId;
     private String data;
     private long timestamp;
-    private int retryCount;
 }
