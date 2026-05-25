@@ -90,7 +90,7 @@ Attempt 5: 50 seconds     ┘
 ```
 
 **Implementation Details:**
-- Uses `@Scheduled(fixedDelay = 5000)`
+- Uses `@Scheduled(fixedDelay = 10000)`
 - Transactional to prevent race conditions
 - Pessimistic locking prevents duplicate retries
 - Failed retries are scheduled again
@@ -306,38 +306,6 @@ CREATE TABLE retry (
 
 ---
 
-### 7. Concurrency & Thread Safety
-
-#### Problem: Race Conditions in Retry
-
-```
-Scenario: Two scheduler threads pick same event
-┌────────────────────────────────────────────┐
-│ Scheduler Thread 1      Scheduler Thread 2 │
-│                                            │
-│ 1. Query evt-001        1. Query evt-001   │
-│    (PENDING)               (PENDING)       │
-│                                            │
-│ 2. Update retry_count=1 2. Update retry_count=1
-│    (Both execute!)                         │
-│                                            │
-│ Result: Duplicate delivery ❌              │
-└────────────────────────────────────────────┘
-```
-
-#### Solution: Pessimistic Locking
-
-```java
-@Lock(LockModeType.PESSIMISTIC_WRITE)
-@Query("SELECT r FROM Retry r WHERE r.status = 'PENDING' AND r.nextRetryAt <= CURRENT_TIMESTAMP")
-List<Retry> findPendingRetries();
-```
-
-**How it works:**
-1. Database acquires write lock on rows
-2. Only one transaction can update simultaneously
-3. Other transactions wait for lock release
-4. Prevents race condition
 
 ---
 
@@ -462,67 +430,13 @@ Scenario: Network timeout on successful delivery
 └────────────────────────────────────────┘
 ```
 
-### Solution: Idempotency Key
-
-```java
-// MS2 uses eventId as idempotency key
-public Order addOrder(OrderEvent event) {
-    // Check if order with this eventId already exists
-    Optional<Order> existing = orderRepository.findByEventId(event.getEventId());
-    
-    if (existing.isPresent()) {
-        // Return existing order (idempotent)
-        return existing.get();
-    }
-    
-    // Create new order
-    Order order = new Order(event);
-    return orderRepository.save(order);
-}
-```
-
 **Implementation:**
 - `eventId` as UNIQUE constraint in MS2
 - First request creates order
 - Retry requests return existing order
 - Result: Exactly-once delivery semantics ✅
 
----
 
-## 🚀 Scalability & Extension Points
-
-### Horizontal Scaling
-
-```
-┌──────────────┐
-│   Load       │
-│ Balancer     │
-└──────┬───────┘
-       │
-    ┌──┴──┬──────┬──────┐
-    │     │      │      │
-    ▼     ▼      ▼      ▼
-┌──────┬───┬──────┬───┬──────┬───┐
-│ MS1  │   │ MS1  │   │ MS1  │   │
-│ Pod1 │ ... Pod2 │ ... Pod3 │ ...
-└──────┴───┴──────┴───┴──────┴───┘
-    │     │      │      │
-    └──────┼──────┼──────┘
-           │      │
-        ┌──┴──────┴──┐
-        │ Shared     │
-        │ MySQL DB   │
-        │ Kafka      │
-        └────────────┘
-```
-
-**Scaling Strategies:**
-1. **Database Replication:** Master-Slave for read distribution
-2. **Kafka Partitions:** Multiple consumer threads per partition
-3. **Caching:** Redis for frequency checks (advanced)
-4. **Circuit Breaker:** Fallback if MS2 unavailable
-
----
 
 ## 📈 Monitoring & Observability
 
@@ -554,75 +468,15 @@ public Order addOrder(OrderEvent event) {
    - Database errors
 ```
 
-### Example Prometheus Queries
-
-```promql
-# Event delivery success rate
-rate(delivery_success_total[5m]) / rate(delivery_total[5m]) * 100
-
-# Pending retry count
-SELECT COUNT(*) FROM retry WHERE status = 'PENDING'
-
-# Avg retry count per event
-SELECT AVG(retry_count) FROM retry WHERE status = 'SUCCESS'
-```
-
 ---
 
-## 🔄 Comparison with Alternatives
 
-### Alternative 1: Synchronous HTTP Retries (Not Chosen)
-
-```
-Pros:
-✅ Simple to implement
-✅ No message broker needed
-
-Cons:
-❌ Blocks client thread during retries
-❌ Poor performance under load
-❌ No event persistence
-❌ Lost on service restart
-```
-
-### Alternative 2: Message Queue Only (Not Chosen)
-
-```
-Pros:
-✅ Guaranteed message delivery
-✅ Good decoupling
-
-Cons:
-❌ No retry control (Queue holds forever)
-❌ No visibility into failures
-❌ Complex recovery
-❌ No explicit backoff strategy
-```
-
-### Chosen: Kafka + Database Retry (✅ Best Fit)
-
-```
-Pros:
-✅ Event streaming capability
-✅ Explicit retry control
-✅ Full visibility/auditability
-✅ Idempotency guarantee
-✅ Configurable backoff
-✅ Failed event recovery
-
-Cons:
-⚠️  More complex
-⚠️  Requires two storage systems
-```
-
----
 
 ## 🎓 Design Patterns Used
 
 | Pattern | Implementation | Purpose |
 |---------|-----------------|---------|
 | **Publish-Subscribe** | Kafka + Topic | Decoupling publishers & consumers |
-| **Circuit Breaker** | Could be added | Prevent cascading failures |
 | **Retry** | RetryScheduler | Transient failure recovery |
 | **Idempotency Key** | eventId | Exactly-once delivery |
 | **Repository** | RetryRepository | Data access abstraction |
@@ -632,34 +486,6 @@ Cons:
 
 ---
 
-## 🔮 Future Enhancements
-
-1. **Dead Letter Queue (DLQ)**
-   - Move permanently failed events to separate queue
-   - Enable manual reprocessing
-
-2. **Circuit Breaker Pattern**
-   - Detect failing services early
-   - Prevent cascading failures
-
-3. **Distributed Tracing**
-   - Correlation IDs across MS1 ↔ MS2
-   - End-to-end latency tracking
-
-4. **Event Versioning**
-   - Handle schema evolution
-   - Backward compatibility
-
-5. **Metrics & Alerting**
-   - Prometheus integration
-   - PagerDuty/Slack alerts
-
-6. **Admin Dashboard**
-   - Retry status visualization
-   - Manual retry trigger
-   - Event exploration
-
----
 
 ## 📚 References
 
@@ -672,4 +498,8 @@ Cons:
 
 **Document Version:** 1.0.0  
 **Last Updated:** 2026-05-26  
-**Author:** Case Study Architecture Team
+**Author:** Abhishek Kumar
+
+**Github:** https://github.com/abhi3521
+
+**LinkedIn:** https://www.linkedin.com/in/abhishek-kumar-9657b4190/
