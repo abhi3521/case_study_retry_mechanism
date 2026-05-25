@@ -1,0 +1,12 @@
+spring:
+  application:
+    name: retry_case
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/ms1_db
+    username: root
+    password: root
+
+  jpa:
+    hibernate:
+      ddl-auto: update
