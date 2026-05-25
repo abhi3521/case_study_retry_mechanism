@@ -12,8 +12,9 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class MessagePayload {
-    private String messageId;
-    private String data;
-    private long timestamp;
+public class Event {
+    private String eventId;
+    private String orderId;
+    private String payload;
+    //private Status eventStatus;
 }
