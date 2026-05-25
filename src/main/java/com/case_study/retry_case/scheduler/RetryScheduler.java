@@ -1,6 +1,7 @@
 package com.case_study.retry_case.scheduler;
 
 import com.case_study.retry_case.dto.Event;
+import com.case_study.retry_case.dto.OrderEvent;
 import com.case_study.retry_case.dto.Status;
 import com.case_study.retry_case.entity.Retry;
 import com.case_study.retry_case.repository.RetryRepository;
@@ -52,11 +53,8 @@ public class RetryScheduler {
                                 Event.class
                         );
 
-                restTemplate.postForEntity(
-                        URL,
-                        event,
-                        Void.class
-                );
+                OrderEvent orderEvent = parseOrderEventFromPayload(event.getPayload());
+                restTemplate.postForEntity(URL, orderEvent, Void.class);
 
                 retry.setStatus(Status.SUCCESS);
 
@@ -76,6 +74,14 @@ public class RetryScheduler {
                         ex.getMessage()
                 );
             }
+        }
+    }
+
+    private OrderEvent parseOrderEventFromPayload(String payload) {
+        try {
+            return objectMapper.readValue(payload, OrderEvent.class);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Invalid JSON payload: " + e.getMessage(), e);
         }
     }
 }
